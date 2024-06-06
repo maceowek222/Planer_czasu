@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -5,48 +6,26 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({Key? key}) : super(key: key);
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'To Do App',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.dark(
+          primary: Colors.white,
+          background: const Color.fromARGB(255, 39, 39, 39),
+        ),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'To Do App'),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
+  const MyHomePage({Key? key, required this.title}) : super(key: key);
 
   final String title;
 
@@ -55,71 +34,364 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  final _tasks = <TaskStatus, List<Task>>{};
+  final ScrollController _mainListScrollController = ScrollController();
   int _counter = 0;
+  Timer? _timer;
+  bool? _lastMoveRight;
+  TextEditingController _taskNameController = TextEditingController();
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  void initState() {
+    TaskStatus.values.forEach((status) {
+      _tasks[status] = <Task>[];
     });
+
+    super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    final screenSize = MediaQuery.of(context).size;
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
+        backgroundColor: Colors.black,
         title: Text(widget.title),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+      body: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: CustomScrollView(
+                scrollDirection: Axis.horizontal,
+                controller: _mainListScrollController,
+                slivers: [
+                  ...TaskStatus.values.map(
+                    (status) {
+                      return SliverToBoxAdapter(
+                        child: RowStatusCard(
+                          tasks: _tasks[status] ?? [],
+                          taskStatus: status,
+                          screenSize: screenSize,
+                          taskAccepted: (task, newStatus) {
+                            _tasks[task.status]?.remove(task);
+                            _tasks[newStatus]?.add(
+                              Task(title: task.title, status: newStatus),
+                            );
+                            setState(() {});
+                          },
+                          onDrag: (isRight) {
+                            if (_lastMoveRight == isRight) {
+                              return;
+                            }
+
+                            _lastMoveRight = isRight;
+                            _moveMainList(isRight);
+                          },
+                          cancelDrag: () {
+                            _lastMoveRight = null;
+                            _timer?.cancel();
+                          },
+                        ),
+                      );
+                    },
+                  )
+                ],
+              ),
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
+        onPressed: () {
+          showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: Text('Add Task'),
+                content: TextField(
+                  controller: _taskNameController,
+                  decoration: InputDecoration(
+                    hintText: 'Enter task name',
+                  ),
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    child: Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      _tasks[TaskStatus.todo]?.add(
+                        Task(
+                          title: _taskNameController.text,
+                          status: TaskStatus.todo,
+                        ),
+                      );
+                      _taskNameController.clear();
+                      Navigator.of(context).pop();
+                      setState(() {});
+                    },
+                    child: Text('Add'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+        tooltip: 'Add Task',
         child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      ),
     );
+  }
+
+  void _moveMainList(bool isRight) {
+    _timer?.cancel();
+
+    _timer = Timer(Duration(milliseconds: 100), () {
+      if (_mainListScrollController.offset <= 20 && !isRight) {
+        _timer?.cancel();
+        return;
+      }
+
+      if (_mainListScrollController.offset >
+          (_mainListScrollController.position.maxScrollExtent)) {
+        _timer?.cancel();
+        return;
+      }
+
+      _mainListScrollController.animateTo(
+        _mainListScrollController.offset + (isRight ? 50 : -50),
+        duration: Duration(milliseconds: 50),
+        curve: Curves.easeIn,
+      );
+
+      _moveMainList(isRight);
+    });
+  }
+}
+
+class RowStatusCard extends StatelessWidget {
+  final void Function(Task task, TaskStatus newStatus) taskAccepted;
+  final void Function(bool isRight) onDrag;
+  final void Function() cancelDrag;
+
+  final TaskStatus taskStatus;
+  final List<Task> tasks;
+  final Size screenSize;
+
+  const RowStatusCard({
+    required this.tasks,
+    required this.taskStatus,
+    required this.screenSize,
+    required this.taskAccepted,
+    required this.onDrag,
+    required this.cancelDrag,
+    Key? key,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: screenSize.height * 0.8,
+      width: screenSize.width * 0.8,
+      margin: EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          Text(
+            taskStatus.displayTitle,
+            style: TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Divider(
+              height: 2,
+              color: Colors.black38,
+            ),
+          ),
+          Expanded(
+            child: DragTarget<Task>(
+              builder: (BuildContext context, List<Task?> candidateData,
+                  List<dynamic> rejectedData) {
+                return ListStatusColumnWidget(
+                  tasks: tasks,
+                  taskStatus: taskStatus,
+                  screenSize: screenSize,
+                  onDrag: onDrag,
+                  cancelDrag: cancelDrag,
+                );
+              },
+              onWillAccept: (details) => true,
+              onAccept: (details) {
+                taskAccepted(details!, taskStatus);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ListStatusColumnWidget extends StatelessWidget {
+  final void Function(bool isRight) onDrag;
+  final void Function() cancelDrag;
+
+  final TaskStatus taskStatus;
+  final List<Task> tasks;
+  final Size screenSize;
+
+  const ListStatusColumnWidget({
+    required this.tasks,
+    required this.taskStatus,
+    required this.screenSize,
+    required this.onDrag,
+    required this.cancelDrag,
+    Key? key,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (tasks.isEmpty) {
+      return Center(
+        child: Container(
+          width: 200,
+          height: 200,
+          decoration: BoxDecoration(border: Border.all()),
+          child: Center(
+            child: Text(
+              "Drag a task here",
+              style: TextStyle(color: Colors.black),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemBuilder: (context, index) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Draggable<Task>(
+            data: tasks[index],
+            feedback: TaskWidget(
+              task: tasks[index],
+              backgroundColor: tasks[index].status.backgroundColor,
+            ),
+            childWhenDragging: Opacity(
+              opacity: 0.5,
+              child: TaskWidget(
+                task: tasks[index],
+                backgroundColor: tasks[index].status.backgroundColor,
+              ),
+            ),
+            onDragStarted: () {
+              // Start dragging
+            },
+            onDragEnd: (_) {
+              cancelDrag();
+            },
+            onDraggableCanceled: (velocity, offset) {
+              cancelDrag();
+            },
+            onDragUpdate: (details) {
+              if (details.localPosition.dx > screenSize.width * 0.8) {
+                onDrag(true);
+              } else if (details.localPosition.dx < screenSize.width * 0.2) {
+                onDrag(false);
+              } else {
+                cancelDrag();
+              }
+            },
+            child: TaskWidget(
+              task: tasks[index],
+              backgroundColor: tasks[index].status.backgroundColor,
+            ),
+          ),
+        );
+      },
+      itemCount: tasks.length,
+    );
+  }
+}
+
+class TaskWidget extends StatelessWidget {
+  final Task task;
+  final Color backgroundColor;
+
+  const TaskWidget({
+    required this.task,
+    required this.backgroundColor,
+    Key? key,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.symmetric(horizontal: 16),
+      color: backgroundColor,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Text(
+          task.title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class Task {
+  final String title;
+  final TaskStatus status;
+
+  Task({
+    required this.title,
+    required this.status,
+  });
+}
+
+enum TaskStatus {
+  todo,
+  inprogress,
+  done,
+}
+
+extension TaskStatusExtension on TaskStatus {
+  String get displayTitle {
+    switch (this) {
+      case TaskStatus.todo:
+        return 'To Do';
+      case TaskStatus.inprogress:
+        return 'In Progress';
+      case TaskStatus.done:
+        return 'Done';
+    }
+  }
+
+  Color get backgroundColor {
+    switch (this) {
+      case TaskStatus.todo:
+        return Colors.black;
+      case TaskStatus.inprogress:
+        return Colors.blue;
+      case TaskStatus.done:
+        return Colors.green;
+    }
   }
 }
